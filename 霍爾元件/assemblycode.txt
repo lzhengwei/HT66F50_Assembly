@@ -1,0 +1,247 @@
+#include 	HT66F50.INC
+;=============================================================
+MY_DATA    .SECTION  'DATA'         	
+INDEX       DB      ?  
+DEL1      	DB  	?       			
+DEL2      	DB   	?       			
+DEL3	    DB  	?   
+SAVE        DB      ?
+EIGHTM      DBIT 
+BO          DB      ?
+BOC         DB      ? 
+SECOND         DB      ?  
+SECONDLED      DB      ?
+TWO           DB    ? 
+LOP           DBIT
+ 
+;=============================================================
+SEG_PORT 		EQU  	PD 	; 		  				
+SEG_PORTC  		EQU    	PDC	; 		七段控制
+SELECT_PORTB 	EQU    	PB 	;		
+SELECT_PORTBC	EQU		PBC	;			七段掃描
+
+;=============================================================
+MY_CODE  .SECTION  AT 0  'CODE'
+		ORG    	00H				;程式RESET
+		JMP     INIT
+        ORG		14H			;TIMER2(中斷位置)
+		JMP     TM0_ISR
+INIT:	
+		CLR     ACERL			;關閉比較器
+		MOV     A,008H			;關閉ADC
+		MOV     CP0C,A			;關閉ADC 
+		MOV     CP1C,A 
+		CLR    	SEG_PORTC		;設定PORTD OUTPUT
+		CLR		SELECT_PORTBC	;設定PORTB OUTPUT
+	
+;================T1 TIMER0中斷設定====================================		
+	   	SET     MF0E	
+        
+        SET     T0PE
+	    SET     T2AE
+		
+        MOV     A,00110000B ;
+        MOV     TM0C0,A	
+        CLR     T0DPX
+        SET     T0RP0
+        CLR     T0RP1
+        SET     T0RP2
+        MOV     A,00cH
+        MOV     TM0AL,A
+        MOV     A,00FH
+        MOV     TM0AH,A
+        CLR     T0M0
+        SET     T0M1
+        SET     T0CP0
+		CLR     T0OC
+		CLR     T0IO0
+		SET     T0IO1
+		CLR     T0POL
+	    
+ 
+;==============T2 TIMER2設定===========================
+		
+		
+		
+	    MOV     A,01110000B
+        MOV     TM2C0,A
+        MOV     A,001H
+        MOV     TM2AL,A
+        MOV     A,000H
+        MOV     TM2AH,A
+        SET     T2M0
+        SET     T2M1
+        CLR     T2IO1
+        CLR     T2IO0
+        CLR     T2OC
+        CLR     T2POL 
+        CLR     T2DPX
+        SET     T2CCLR	
+      
+        SET     PCC.3
+ ;==============================      
+      
+        
+        CLR		MF0F
+		CLR     T0PF	
+        CLR     T2AF
+		SET     T0ON
+		SET     T2ON
+		SET		EMI
+;=======================================================
+       
+        
+        MOV		A,092H			;設定存入資料
+		MOV 	MP0,A
+		MOV 	A,0
+		CLR 	IAR0
+SETVALUE:
+        MOV 	IAR0,A
+		INC 	MP0
+        MOV 	IAR0,A
+
+;==================================PWM===========================        
+MAIN:   
+        
+        MOV    A,0
+        MOV    INDEX,A        
+RE:     SET    LOP
+        SET    T2ON
+        CLR    BO
+        CLR    BOC
+        MOV    A,0FFH
+        MOV    SECOND,A
+        MOV    A,INDEX
+        ADD    A,OFFSET PWMTABLE
+        MOV    TBLP,A
+        TABRDL TM0AL
+        MOV    A,TBLH
+        MOV    TM0AH,A
+               
+ DE:    SZ     SECOND
+        JMP    DE
+        MOV    A,BO
+        MOV    [93H],A         ;將轉速移植94h
+        MOV    A,BOC
+        MOV    [92H],A
+        CLR    T2ON
+        mov    a,INDEX
+        SUB    A,6
+        SZ     ACC
+        JMP    LEDMAIN
+        JMP    MAIN
+ ;==========================LED==================================       
+LEDMAIN: 
+       
+        INCA   INDEX
+        INC    INDEX
+        MOV     A,002H			;設定掃描腳
+		MOV     SELECT_PORTB,A	;個位數初始化輸出
+		MOV     A,93H           
+        MOV     MP0,A
+        JMP     RE
+ 
+
+        
+;=====================================================
+DELAY PROC
+        MOV A,64H
+        MOV DEL1,A
+DELAY1:  MOV A,30
+         MOV DEL2,A
+DELAY2:  MOV A,110
+         MOV DEL3,A
+DELAY3:  SDZ DEL3
+         JMP $-1
+         SDZ DEL2
+         JMP DELAY2
+         SDZ DEL1
+         JMP DELAY1
+       RET
+  DELAY ENDP
+      
+      
+ 
+;======================================================
+TM0_ISR:   ;(中斷副程式)
+       
+        MOV		SAVE,A
+
+ PFF:   SNZ   T0PF
+        JMP   AFF
+        SZ    LOP
+        JMP   DECS
+        JMP   LEDE
+ AFF:   SNZ   T2AF
+        JMP   BACK             		
+        INCA  BO
+        INC   BO
+        SUB   A,10
+        SZ    ACC 
+        JMP   BACK
+        CLR   BO
+        INC   BOC
+        JMP   BACK
+
+ DECS:  DEC     SECOND      
+		MOV     A,0FFH			   ;防殘影 關閉顯示			
+		MOV     SEG_PORT,A		   
+        mov A,MP0
+		SUB A,091h
+		SZ  ACC			   ;由右至左掃描4次重新設定
+		JMP DECLED
+		JMP DECLEDMAIN 
+DECLEDMAIN :MOV     A,93H           
+        MOV     MP0,A 
+        MOV     A,001H			;設定掃描腳
+		MOV     SELECT_PORTB,A	;個位數初始化輸出		
+DECLED: MOV    	A,OFFSET TAB_7_SEG ;抓取表頭
+		ADD   	A,IAR0			   ;記憶體資料+查表=輸出樣式
+		MOV  	TBLP,A			   ;查表
+		TABRDL  [0A0H]             ;讀表 LOW_BYTE 放入0A0H (七段顯示0~9)
+		MOV     A,[0A0H]           ;取值
+	    XOR		A,0FFH			   ;反向(共陽極)
+		MOV  	SEG_PORT,A   ;輸出
+		RL      SELECT_PORTB	   ;左移掃描
+		dec MP0	
+        JMP BACK
+ LEDE:  CLR     EIGHTM
+        SDZ     TWO
+        JMP     BACK
+        DEC     SECONDLED
+		MOV     A,2
+		MOV     TWO,A
+        JMP     BACK                      
+BACK:  	                
+        MOV	A,SAVE      
+        CLR		MF0F		
+        CLR   T0PF
+        SET   T0ON 	
+        CLR   T2AF
+        SET   T2ON       
+		SET		EMI
+        RETI
+ORG LASTPAGE
+;==================================
+PWMTABLE:           
+        DC      005cH
+        DC      00AaH
+        DC      0147H
+        DC      01f4H
+        DC      0251H
+        DC      02FFH
+;==================================
+
+TAB_7_SEG: 
+		DC      03Fh+20 SHL 8
+		DC    	006h+40 SHL 8  	
+		DC    	05Bh+60 SHL 8  
+		DC     	04Fh+80 SHL 8  
+		DC     	066h+99 SHL 8 
+		DC    	06Dh+99 SHL 8 
+		DC     	07Dh+80 SHL 8 
+		DC     	007h+60 SHL 8 
+		DC     	07Fh+40 SHL 8 
+		DC     	067h+25 SHL 8 
+
+	END 
